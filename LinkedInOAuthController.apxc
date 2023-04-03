@@ -1,0 +1,125 @@
+public class LinkedInOAuthController {
+    public boolean isCode {get; set;}
+    public string authCodeFromURL {get; set;}
+    List<LinkedIn_Information__c> linkedInInfoList {get; set;}
+    public string BasicInfo {get; set;}
+    public string urlToSharedPost {get; set;}
+    public string sharedInformation {get; set;}
+    
+    public final string consumerKey = '7788trcebdjk6r';
+    public final string consumerSecret = 'ALxOsgZ5l72qcQsa';
+    public final string redirect_URI = 'https://shrinesoft6-dev-ed--c.vf.force.com/apex/LinkedInOAuth';
+    public string linkedIn_Scope = 'r_liteprofile%20r_emailaddress%20w_member_social';
+    public string linkedIn_AuthUrl = 'https://www.linkedin.com/oauth/v2/authorization?';
+    public final string accessToken_Endpoint = 'https://www.linkedin.com/oauth/v2/accessToken';
+    
+    public LinkedInOAuthController(){
+        authCodeFromURL = ApexPages.currentPage().getParameters().get('code');
+        if(authCodeFromURL == null || authCodeFromURL == '')
+            isCode = true;
+        else
+            isCode = false;
+        
+        linkedInInfoList = [Select id, Name, Access_Token__c, Expires_In_Seconds__c, Scope__c From LinkedIn_Information__c where Name = 'LinkedInInfo'];
+    }
+    public PageReference doGetAutorizationCode(){
+        String requestoAuthURL = linkedIn_AuthUrl + 'response_type=code&client_id='+consumerKey +
+            '&redirect_uri='+redirect_URI+ '&state=123456abbc&scope='+linkedIn_Scope;
+        PageReference pageRef =  new PageReference(requestoAuthURL);
+        return pageRef;
+    }
+    
+    public void doGetAccessToken(){
+        Http http = new Http();
+        HttpRequest httpReq = new HttpRequest();
+        HttpResponse httpRes = new HttpResponse();
+        String requestTokenBody = 'code='+authCodeFromURL +'&grant_type=authorization_code'  +
+            '&client_id='+consumerKey + '&client_secret='+consumerSecret +
+            '&redirect_uri='+redirect_URI;
+        String errorMessage='';
+        System.debug('authCodeFromURL....'+authCodeFromURL );
+        
+        System.debug('requestTokenBody .....' +requestTokenBody);
+        
+        httpReq.setMethod('POST');
+        httpReq.setEndpoint(accessToken_Endpoint);
+        httpReq.setHeader('Content-Type', 'application/x-www-form-urlencoded');
+        httpReq.setBody(requestTokenBody);
+        
+        httpRes = http.send(httpReq);
+        Map<String,Object> TokenInfo = (Map<String,Object>)JSON.deserializeUntyped(httpRes.getBody());
+        LinkedIn_Information__c linkedInInfoData = new LinkedIn_Information__c();
+        
+        linkedInInfoData.Access_Token__c = String.valueOf(TokenInfo.get('access_token'));
+        linkedInInfoData.Expires_In_Seconds__c = double.valueOf(TokenInfo.get('expires_in'));
+        linkedInInfoData.Scope__c = String.valueOf(TokenInfo.get('scope'));
+        linkedInInfoData.Name = 'LinkedInInfo'; 
+        
+        if(linkedInInfoList!=null && linkedInInfoList.size() > 0){
+            linkedInInfoData.Id = linkedInInfoList[0].Id;
+            
+        }   
+        ApexPages.addMessage( new ApexPages.Message(ApexPages.severity.CONFIRM, 'Congrats..... Successfully done integration with LinkedIn'));
+        upsert linkedInInfoData;
+        
+    }
+    public void doFetchBasicInfo(){
+        String errorMessage ='';
+        Http http = new Http();
+        HttpRequest httpReq = new HttpRequest();
+        HttpResponse httpRes = new HttpResponse();
+        
+        List<LinkedIn_Information__c> linkedInInfoListNew = [Select Id, Name,Access_Token__c,Expires_In_Seconds__c, Scope__c From LinkedIn_Information__c Where Name='LinkedInInfo'];
+        
+        httpReq.SetMethod('GET');
+        httpReq.setEndpoint('https://api.linkedin.com/v2/me');
+        httpReq.setHeader('Authorization', 'Bearer '+linkedInInfoListNew[0].Access_Token__c);
+        httpReq.setHeader('Content-Type', 'application/json');
+        
+        httpRes = http.send(httpReq);
+        
+        Map<String,object> TokenInfo = (Map<String,object>)JSON.deserializeUntyped(httpRes.getBody());
+        String ID = String.valueOf(TokenInfo.get('id'));
+        String firstName = String.valueOf(TokenInfo.get('firstName'));
+        String lastName = String.valueOf(TokenInfo.get('lastName'));
+        String profile = String.valueOf(TokenInfo.get('profilePicture'));
+        //String urn = String.valueOf(TokenInfo.get('headline'));
+        
+        BasicInfo = ID+ ' ' + firstName +'  ' + lastName +'  '+profile;
+        
+    }
+    public void doSharePostOnLinkedIn(){
+        String errorMessage = '';
+        Http http = new Http();
+        HttpRequest httpReq = new HttpRequest();
+        HttpResponse httpRes = new HttpResponse();
+        List<LinkedIn_Information__c> linkedInInfoList = [Select Id, Name,Access_Token__c, Expires_In_Seconds__c From LinkedIn_Information__c Where Name = 'LinkedInInfo'];
+        
+        httpReq.setMethod('Post');
+        httpReq.setEndPoint('https://api.linkedin.com/v2/ugcPosts');
+        httpReq.setHeader('Authorization','Bearer');
+        httpReq.setHeader('Content-Type','application/json');
+        httpReq.setHeader('x-li-format', 'json');
+        String requestBody= '{'+
+            '"author": "urn:li:person:8WjGWJbDPq",' +
+            '"lifecycleState": "PUBLISHED",' +
+            '"specificContent": {'+
+            '"com.linkedin.ugc.ShareContent": {'+
+            '"shareCommentary": {'+
+            ' "text": "Hello World! S LinkedIn!"'+
+            '},'+
+            '"shareMediaCategory": "NONE",'+
+            '}'+
+            '},' +
+            '"visibility": {' +
+            '"com.linkedin.ugc.MemberNetworkVisibility": "PUBLIC"'+
+            '}'+
+            '}';
+        httpReq.setBody(requestBody);
+        httpRes = http.send(httpReq);
+        sharedInformation = requestBody;
+        Map<String,object> sharedPostInformationMap = (Map<String,object>)JSON.deserializeUntyped(httpRes.getBody());
+        urlToSharedPost = 'https://'+(String)sharedPostInformationMap.get('updateUrl');
+        
+    }
+}
